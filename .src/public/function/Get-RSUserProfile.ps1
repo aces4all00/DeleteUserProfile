@@ -55,27 +55,46 @@
         [string[]]$Exclude
     )
     foreach ($Computer in $ComputerName) {
-        if (Test-WSMan -ComputerName $Computer -ErrorAction SilentlyContinue) {
-            Write-Output "`n== All profiles on $($Computer) ==`n"
-            try {
-                Get-CimInstance -ComputerName $Computer -className Win32_UserProfile | Where-Object { (-Not ($_.Special)) } | Foreach-Object {
-                    if (-Not ($_.LocalPath.split('\')[-1] -in $Exclude)) {
-                        [PSCustomObject]@{
-                            'UserName'               = $_.LocalPath.split('\')[-1]
-                            'Profile path'           = $_.LocalPath
-                            'Last used'              = ($_.LastUseTime -as [DateTime]).ToString("yyyy-MM-dd HH:mm")
-                            'Is the profile active?' = $_.Loaded
-                        }
-                    }
-                } | Format-Table
+        Write-Output "`n== All profiles on $($Computer) ==`n"
+        try {
+            $gcmiSplat = @{
+                'Computer'  = $Computer
+                'ClassName' = 'Win32_UserProfile'
+                'Filter'    = "Special = 0"
             }
-            catch {
-                Write-Error "$($PSItem.Exception)"
-                break
+
+            Get-CimInstance @gcmiSplat | Foreach-Object {
+                if (-Not ($_.LocalPath.split('\')[-1] -in $Exclude)) {
+                    $RSUserProfile = [PSCustomObject]@{
+                        'PSTypeName'            = 'RSUserProfile'
+                        'ComputerName'          = $_.PSCompterName
+                        'UserName'              = $_.LocalPath.split('\')[-1]
+                        'ProfilePath'           = $_.LocalPath
+                        'LastUsed'              = ($_.LastUseTime -as [DateTime])
+                        'Active'                = $_.Loaded
+                        'CimInstance'           = $_
+                    }
+
+                    $defaultDisplay = @(
+                        'UserName'
+                        'ProfilePath'
+                        'LastUsed'
+                        'Active'
+                    )
+                
+                    $defaultDisplayPropertySet = New-Object System.Management.Automation.PSPropertySet('DefaultDisplayPropertySet',[string[]]$defaultDisplay)
+                    $PSStandardMembers = [System.Management.Automation.PSMemberInfo[]]@($defaultDisplayPropertySet)
+                    $RSUserProfile | Add-Member MemberSet PSStandardMembers $PSStandardMembers
+                    $RSUserProfile
+
+                    $RSUserProfile
+                }
             }
         }
-        else {
+        catch {
             Write-Output "$($Computer) are not connected to the network or it's trouble with WinRM"
+            Write-Error "$($PSItem.Exception)"
+            break
         }
     }
 }
